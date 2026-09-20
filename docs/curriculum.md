@@ -78,11 +78,12 @@ slice from a mentor-prepared starter branch). Every milestone ends with a merged
 - **Ticket:** make the Postgres job also run the two timer tests.
 
 ## M9 — Release & deploy
-- Cut a release: bump `pyproject.toml` version, tag `v0.x.y`, watch `deploy.yml` build, push and deploy.
-- Practise a **rollback** with *Actions → Deploy → Run workflow* and the previous tag.
-- Practise a **bad deploy**: push a tag whose image fails `/ready`; watch `deploy.sh` roll back by itself.
-- Read `deploy/nginx-fxlab.conf` and explain why it has no `map` and no `default_server`.
-- Follow `docs/sdlc-and-deploy.md`. **The shared server already serves other sites — trainees never edit nginx; a mentor installs the site file.**
+- Cut a release: bump `pyproject.toml` version, tag `v0.x.y`, watch `deploy.yml` verify, ship and health-check.
+- Read `deploy/native/deploy-native.sh` and explain each step: unpack → own venv → symlink flip → restart → health check → rollback.
+- Practise a **rollback** with *Actions → Deploy → Run workflow* and an older tag (why is it fast?).
+- Practise a **bad deploy** (on a training server, never the shared one): ship a release that fails `/ready` and watch it roll back by itself.
+- Read `deploy/nginx-fxlab.conf` and explain why it has no `map` and no `default_server`, and why the app listens on loopback only.
+- Follow `docs/sdlc-and-deploy.md`. **The shared server serves other sites — trainees never edit nginx, the firewall or PostgreSQL; a mentor owns those.**
 
 ## M10 — Operate
 Work through the drills in `docs/runbook.md`: a silent counterparty, a rejecting counterparty, a stopped database,

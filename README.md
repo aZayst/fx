@@ -5,7 +5,7 @@ post-trade confirmation with counterparties, and transaction monitoring — plus
 software-delivery loop around it (tests, CI, containers, CD to a server, runbook).
 
 **Stack:** Python 3.11+, FastAPI, WebSockets, SQLAlchemy (SQLite locally, Postgres in
-production), pytest, ruff, mypy, Docker Compose, GitHub Actions. No front-end build step.
+production), pytest, ruff, mypy, GitHub Actions, systemd + nginx in production (Docker only for local dev). No front-end build step.
 
 ## The business flow in one picture
 
@@ -59,8 +59,8 @@ Things to try (dashboard at `/`, API docs at `/docs`):
 | `fxlab/routes/` `main.py` | thin HTTP/WebSocket layer · app factory & background loops |
 | `fxlab/static/` | the dashboard (plain HTML/JS/CSS) |
 | `tests/` | unit, API and end-to-end tests |
-| `Dockerfile` `docker-compose.yml` | local containers |
-| `deploy/` | production compose file, deploy script, nginx site — see the deploy guide |
+| `Dockerfile` `docker-compose.yml` | local containers (dev only) |
+| `deploy/` | production: native (no Docker) bootstrap + deploy scripts, systemd units, nginx site — see the deploy guide |
 | `.github/workflows/` | CI (`ci.yml`) and CD (`deploy.yml`) |
 | `docs/` | architecture, curriculum, SDLC & deploy guide, runbook, glossary |
 

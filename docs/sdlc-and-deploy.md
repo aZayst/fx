@@ -4,7 +4,7 @@
 
 ```
 idea → ticket → branch → code + tests → make check → PR → CI → review → merge to main
-     → tag vX.Y.Z → build image → (approval) → deploy → verify → monitor → (rollback if needed)
+     → tag vX.Y.Z → verify → (approval) → ship → health check → monitor → (rollback if needed)
 ```
 
 - **Tickets** use `.github/ISSUE_TEMPLATE/ticket.md` (context, acceptance criteria, out of scope).
@@ -16,96 +16,113 @@ idea → ticket → branch → code + tests → make check → PR → CI → rev
 Recommended GitHub settings (Settings → Branches → rule for `main`): require a PR, require the
 `test`, `test-postgres` and `docker` checks, require one approval, block force-pushes.
 
+## Two environments, two shapes
+
+| | Local / dev | Production (`fxlab.alicepage.com`) |
+|---|---|---|
+| Runs as | `make run` (+ `make run-cp`), or `docker compose up` | **systemd services, no Docker** |
+| Database | SQLite (or Postgres in compose) | the host's **PostgreSQL 16**, dedicated `fxlab` role + database |
+| Web | `localhost:8000` | existing **nginx** → `127.0.0.1:8100` |
+
+Docker is for developers only (`Dockerfile`, `docker-compose.yml`, the `docker` CI job). **Nothing in production uses it.**
+
 ## CI — `.github/workflows/ci.yml`
 
 | Job | Proves |
 |---|---|
 | `test` (py3.11, py3.12) | lint, format, types, tests, coverage ≥ 85 % |
 | `test-postgres` | the same tests pass on **Postgres**, the production database |
-| `docker` | the image builds and the container answers `/ready` |
+| `docker` | the dev image builds and answers `/ready` |
 
 ## CD — `.github/workflows/deploy.yml`
 
-Trigger: push a tag `v*` (or *Run workflow* with a tag to redeploy / roll back).
+Trigger: push a tag `v*`, or *Actions → Deploy → Run workflow* with a ref.
 
-1. Build the image, push to `ghcr.io/azayst/fx:<tag>`.
-2. **`production` environment** — configure *required reviewers* in GitHub for a manual approval gate.
-3. Copy `deploy/compose.prod.yml` and `deploy/deploy.sh` to `/opt/fxlab` on the server over SSH.
-4. Run `deploy.sh <tag>` there: pull, `docker compose up -d`, wait for `/ready`, **auto-rollback** to the previous tag if unhealthy.
-5. Verify `https://fxlab.alicepage.com/health` from the runner.
+1. **verify** – lint, types and tests on the exact commit.
+2. **deploy** (environment `production` — add *required reviewers* for a manual approval gate):
+   `git archive` the commit and stream it over SSH to `deploy-native.sh <sha>` on the server.
+3. `deploy-native.sh` builds `/opt/fxlab/releases/<sha>/` (own venv), flips the `current` symlink,
+   restarts **only** `fxlab-app` and `fxlab-counterparty`, waits for `/ready`, and **rolls the symlink back
+   automatically** if it doesn't pass within 60 s. The newest 3 releases are kept.
+4. Optional public check (set the repo variable `PUBLIC_URL` once DNS/TLS are ready).
 
 ### GitHub secrets (Settings → Secrets and variables → Actions → environment `production`)
 
 | Secret | Value |
 |---|---|
 | `DEPLOY_HOST` | `fxlab.alicepage.com` |
-| `DEPLOY_USER` | the unprivileged deploy user (below) |
+| `DEPLOY_USER` | the SSH user (must be able to run `sudo -n /opt/fxlab/bin/deploy-native.sh`) |
 | `DEPLOY_SSH_KEY` | private key of a key pair used *only* for deploys |
-| `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan -t ed25519 fxlab.alicepage.com`, checked against the server's real fingerprint |
+| `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 fxlab.alicepage.com` output, checked against the server's real fingerprint |
 
-Optional variable `PUBLIC_URL` (defaults to `https://fxlab.alicepage.com`) — set it to `http://…` until TLS exists.
+Prefer a dedicated non-root deploy user with a narrow sudoers rule over root:
+`deployer ALL=(root) NOPASSWD: /opt/fxlab/bin/deploy-native.sh`.
 
 ## Sharing the server safely
 
-`fxlab.alicepage.com` **already runs nginx for other sites.** The deployment is designed to coexist with it:
+The box **already serves other sites** (nginx, a shared PostgreSQL, other systemd apps). Everything fxlab adds is additive and namespaced:
 
 | Rule | How it is enforced |
 |---|---|
-| Never bind ports 80/443 | `compose.prod.yml` publishes only `127.0.0.1:8100`; nginx proxies to it |
-| Never edit the main nginx config | our site is one standalone `server` block in its own file, no `http`-level directives (`map`, `upstream`, …) that could collide |
+| Never touch shared nginx config | one new standalone site file; no `http`-level directives. The box's `conf.d/websocket.conf` already defines `$connection_upgrade`, so redefining it would break `nginx -t` — our file writes the upgrade headers literally |
 | Never steal another site's traffic | specific `server_name`, no `default_server` |
-| Never restart nginx | install with `nginx -t` then `systemctl reload nginx` (graceful) |
-| Don't collide with other containers/volumes | compose project `name: fxlab` namespaces everything (`fxlab-app-1`, volume `fxlab_pgdata`) |
-| Don't fight for a port | `deploy.sh` refuses to start if `APP_PORT` is taken by something else |
-| Don't clean up other people's things | no `docker system prune`, no `down -v`; image pruning is label-scoped to `fxlab` |
-| Pipeline never touches nginx | `deploy.sh` and the workflow contain no nginx commands at all |
+| Never restart nginx | `nginx -t` then `systemctl reload nginx` |
+| No port clashes | app on `127.0.0.1:8100`, counterparties on `127.0.0.1:8101` — loopback only; ports were checked free first |
+| Own identity | dedicated `fxlab` system user, `nologin`; units run hardened (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, …) |
+| Don't share data | dedicated Postgres role + database `fxlab`; other databases are never touched |
+| Secrets | `/opt/fxlab/.env`, `root:root 0600`; systemd injects it, the app user can't read the file |
+| Bounded footprint | one uvicorn worker per service, ~90 MB RSS; ≤ 3 kept releases (~150 MB each) — the root disk is tight |
+| Pipeline never touches nginx/Postgres/firewall | `deploy-native.sh` only writes under `/opt/fxlab` and restarts the two fxlab units |
 
-## One-time server setup (done by a human, not by the pipeline)
-
-Do these **in order**, and read the output of each step before continuing. Steps 1–3 change nothing that nginx uses.
+## One-time server setup (done once by a human)
 
 ```bash
-# 0. LOOK FIRST. Learn what is already there; change nothing yet.
-sudo nginx -T | grep -E 'server_name|listen'      # existing sites and ports
-sudo ss -ltnp                                     # who owns which port (is 8100 free?)
-docker ps; docker --version; docker compose version
+# 0. LOOK FIRST. Change nothing yet.
+sudo nginx -T | grep -E 'server_name|listen'   # existing sites
+sudo ss -ltnp                                   # 8100 / 8101 free?
+sudo ufw status verbose; df -h /; systemctl list-units --type=service --state=running
 
-# 1. A deploy user (in the docker group) and the app directory
-sudo adduser --disabled-password --gecos "" deploy
-sudo usermod -aG docker deploy
-sudo install -d -o deploy -g deploy -m 750 /opt/fxlab
-#    add the PUBLIC half of DEPLOY_SSH_KEY to /home/deploy/.ssh/authorized_keys
+# 1. Bootstrap (idempotent): user, /opt/fxlab, Postgres role+db, .env, systemd units.
+#    Installs python3-venv if it is missing; nothing else.
+tar -czf - -C deploy native | ssh root@HOST 'mkdir -p /tmp/fxlab-install && tar -xzf - -C /tmp/fxlab-install \
+    && bash /tmp/fxlab-install/native/install-native.sh'
 
-# 2. Secrets file
-sudo -u deploy cp deploy/.env.example /opt/fxlab/.env   # then edit it
-sudo chmod 600 /opt/fxlab/.env                          # set DB_PASSWORD and API_KEY (long random)
-#    if 8100 is taken, choose another APP_PORT here AND in nginx-fxlab.conf
+# 2. First release
+git archive --format=tar.gz HEAD | ssh root@HOST "/opt/fxlab/bin/deploy-native.sh $(git rev-parse --short=8 HEAD)"
+ssh root@HOST 'curl -fsS http://127.0.0.1:8100/ready'          # works BEFORE nginx is involved
 
-# 3. DNS: an A/AAAA record for fxlab.alicepage.com -> this server
+# 3. nginx site (a human; see the header of deploy/nginx-fxlab.conf)
+sudo cp deploy/nginx-fxlab.conf /etc/nginx/sites-available/fxlab.alicepage.com.conf
+sudo ln -s /etc/nginx/sites-available/fxlab.alicepage.com.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx                   # if -t fails: remove the symlink, nothing changed
 
-# 4. First deploy: push a tag (or run the workflow). Check locally on the server:
-curl -fsS http://127.0.0.1:8100/ready              # app works BEFORE nginx is involved
-
-# 5. ONLY NOW add the nginx site
-sudo cp deploy/nginx-fxlab.conf /etc/nginx/conf.d/fxlab.conf   # match how the other sites are laid out
-sudo nginx -t                                       # must print "test is successful"
-sudo systemctl reload nginx                         # reload, NOT restart
-#    if nginx -t fails:  sudo rm /etc/nginx/conf.d/fxlab.conf   -> back to exactly how it was
-
-# 6. HTTPS: do it the way the other sites do (e.g. certbot --nginx -d fxlab.alicepage.com),
-#    then re-run `sudo nginx -t && sudo systemctl reload nginx`.
+# 4. DNS: A record fxlab.alicepage.com -> the server  (already done)
+# 5. HTTPS — see below
 ```
+
+The admin panel needs the API key: `sudo grep '^API_KEY=' /opt/fxlab/.env` (paste it in the dashboard's *API key* box).
+
+### HTTPS and the firewall (open item)
+
+The existing sites use `certbot --nginx`, which validates over **port 80**. On this box `ufw` allows only 22 and 443, so a new certificate
+cannot be issued until one of these is done — a decision for the box's owner:
+
+1. **Open 80/tcp** (`sudo ufw allow 80/tcp`), then `sudo certbot --nginx -d fxlab.alicepage.com` (the existing certbot account is reused). Leaving it open also lets the other sites' certificates renew — several of them (`margin.ecn.llc`, `post.ecn.llc`) are due within ~5 weeks and use the same method.
+2. **DNS-01** validation instead (needs API access to the `alicepage.com` DNS zone).
+
+Until then the site answers on nginx port 80 but is unreachable from the internet; verify on the server with
+`curl -H 'Host: fxlab.alicepage.com' http://127.0.0.1/health`.
 
 ## Rollback
 
-- **Automatic:** `deploy.sh` rolls back to the previous tag when `/ready` doesn't pass within 60 s.
-- **Manual:** *Actions → Deploy → Run workflow → tag = the last good version*. Or on the server:
-  `cd /opt/fxlab && ./deploy.sh v0.1.0`.
-- **Data:** the Postgres volume `fxlab_pgdata` is untouched by deploys. Schema changes need care: today the app only
-  calls `create_all()` (adds missing tables, never alters existing ones) — see the migrations stretch goal.
+- **Automatic:** a release that fails `/ready` within 60 s is rolled back by `deploy-native.sh`.
+- **Manual, fast:** *Actions → Deploy → Run workflow → ref = an older tag* (re-activates the kept build: symlink + restart).
+  On the server: `/opt/fxlab/bin/deploy-native.sh <sha-of-a-kept-release>` (`ls /opt/fxlab/releases`; stdin unused).
+- **Data:** the Postgres database is untouched by deploys. Schema changes need care: today the app only calls `create_all()`
+  (adds missing tables, never alters existing ones) — see the migrations stretch goal.
 
-## Untested-by-the-author note
+## What has and hasn't been exercised
 
-The workflows, Dockerfile and deploy script have been validated statically (`actionlint`, YAML and `bash -n`) and the app
-itself was run against real Postgres, but the container build, GitHub runs and the server deploy have **not** been
-executed yet — the first run of CI/CD is the real test. Do the first deploy with a mentor watching.
+Run for real on the server: the bootstrap, a release deploy, both services with the API key, the nginx site (before/after
+comparison of every other site: identical), WebSocket through nginx. The **GitHub Actions workflows themselves have not run yet**
+(secrets aren't configured), so the first tag push is their real test — do it with a mentor watching.

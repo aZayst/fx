@@ -1,0 +1,30 @@
+[Unit]
+Description=fxlab app (FastAPI)
+After=network.target postgresql.service fxlab-counterparty.service
+Wants=fxlab-counterparty.service
+
+[Service]
+Type=simple
+User=fxlab
+Group=fxlab
+WorkingDirectory=/opt/fxlab/current
+# Secrets live in a root-only file; systemd reads it before dropping privileges.
+EnvironmentFile=/opt/fxlab/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# ONE worker on purpose: the WebSocket event bus is in-process.
+ExecStart=/opt/fxlab/current/venv/bin/python -m uvicorn fxlab.main:app \
+  --host 127.0.0.1 --port 8100 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=3
+
+# Hardening: it needs the network and its own code, nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

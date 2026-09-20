@@ -1,68 +1,53 @@
 name: Deploy
 
-# Releases:  git tag v0.1.0 && git push origin v0.1.0
-# Rollback / redeploy an older version: Actions -> Deploy -> Run workflow -> give the tag.
+# Production is a plain Linux box (no Docker): a venv per release + systemd, behind the existing nginx.
+#   Release:   git tag v0.1.0 && git push origin v0.1.0
+#   Roll back: Actions -> Deploy -> Run workflow -> ref = an older tag (its build is kept on the
+#              server, so this only flips a symlink and restarts; no rebuild).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Image tag to deploy (e.g. v0.1.0). The image must already exist in GHCR."
+      ref:
+        description: "Tag or commit to deploy (an older tag = rollback)"
         required: true
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false   # never interrupt a deploy half-way
 
-env:
-  DEPLOY_DIR: /opt/fxlab
-
 jobs:
-  build:
-    name: build and push image
-    if: github.event_name == 'push'
+  verify:
+    name: verify the exact commit being deployed
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - id: meta
-        run: |
-          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"   # GHCR needs lowercase
-      - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
         with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: ruff check . && ruff format --check .
+      - run: mypy fxlab
+      - run: pytest
 
   deploy:
     name: deploy to fxlab.alicepage.com
-    needs: [build]
-    # Run after a successful build, or straight away for a manual redeploy/rollback.
-    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    needs: [verify]
     runs-on: ubuntu-latest
     environment: production   # add "required reviewers" to this environment for a manual approval gate
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve and validate tag
-        env:
-          BUILT_TAG: ${{ needs.build.outputs.tag }}
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          TAG="${BUILT_TAG:-$INPUT_TAG}"
-          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid tag: $TAG"; exit 1; }
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Release id = commit sha (immutable)
+        run: echo "RELEASE_ID=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -71,26 +56,24 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Copy deploy files
+      - name: Ship the source and activate it
         env:
           TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
-        run: scp -i ~/.ssh/id_deploy deploy/compose.prod.yml deploy/deploy.sh "$TARGET:${DEPLOY_DIR}/"
-      - name: Deploy
-        env:
-          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REGISTRY_USER: ${{ github.actor }}
         run: |
-          # The token goes over stdin so it never appears in a process list or the logs.
-          printf '%s' "$REGISTRY_TOKEN" | ssh -i ~/.ssh/id_deploy "$TARGET" \
-            "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin && cd ${DEPLOY_DIR} && ./deploy.sh '${TAG}'"
+          # deploy-native.sh builds a venv next to the live release, switches a symlink,
+          # restarts only the two fxlab services, and rolls back on a failed health check.
+          git archive --format=tar.gz HEAD | ssh -i ~/.ssh/id_deploy "$TARGET" \
+            "sudo -n /opt/fxlab/bin/deploy-native.sh $RELEASE_ID"
       - name: Verify from the outside
+        # Only once DNS + port 80/443 + TLS are in place: set the repo variable PUBLIC_URL
+        # (e.g. https://fxlab.alicepage.com). Until then the on-server /ready check is the gate.
+        if: ${{ vars.PUBLIC_URL != '' }}
         env:
-          PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://fxlab.alicepage.com' }}
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
         run: |
           for i in $(seq 1 10); do
             curl -fsS "$PUBLIC_URL/health" && exit 0
             sleep 3
           done
-          echo "public health check failed - is the nginx site installed / TLS set up? see deploy/nginx-fxlab.conf"
+          echo "public health check failed - see deploy/nginx-fxlab.conf and docs/sdlc-and-deploy.md"
           exit 1

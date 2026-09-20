@@ -1,0 +1,26 @@
+[Unit]
+Description=fxlab fake counterparties (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=fxlab
+Group=fxlab
+WorkingDirectory=/opt/fxlab/current
+EnvironmentFile=/opt/fxlab/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/fxlab/current/venv/bin/python -m uvicorn fxlab.counterparty.app:app \
+  --host 127.0.0.1 --port 8101
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
