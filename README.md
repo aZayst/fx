@@ -30,6 +30,8 @@ production), pytest, ruff, mypy, GitHub Actions, systemd + nginx in production (
 3. **Post-trade** – the trade is reported to three counterparties; each acks or rejects (or stays silent).
 4. **Monitor** – a live grid of *every trade × every counterparty*; breaks, SLA breaches and rule alerts, with one-click resend.
 
+**Live:** https://fxlab.alicepage.com (systemd + nginx on a shared Ubuntu box — see [docs/sdlc-and-deploy.md](docs/sdlc-and-deploy.md)).
+
 ## Quick start
 
 ```bash

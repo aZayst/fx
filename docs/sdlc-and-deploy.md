@@ -96,22 +96,28 @@ sudo cp deploy/nginx-fxlab.conf /etc/nginx/sites-available/fxlab.alicepage.com.c
 sudo ln -s /etc/nginx/sites-available/fxlab.alicepage.com.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx                   # if -t fails: remove the symlink, nothing changed
 
-# 4. DNS: A record fxlab.alicepage.com -> the server  (already done)
-# 5. HTTPS — see below
+# 4. DNS: A record fxlab.alicepage.com -> the server  (done)
+# 5. HTTPS: open 80/tcp, then certbot --nginx — see "HTTPS (done)" below
 ```
 
 The admin panel needs the API key: `sudo grep '^API_KEY=' /opt/fxlab/.env` (paste it in the dashboard's *API key* box).
 
-### HTTPS and the firewall (open item)
+### HTTPS (done)
 
-The existing sites use `certbot --nginx`, which validates over **port 80**. On this box `ufw` allows only 22 and 443, so a new certificate
-cannot be issued until one of these is done — a decision for the box's owner:
+`https://fxlab.alicepage.com` uses a Let's Encrypt certificate issued with the box's existing certbot account:
 
-1. **Open 80/tcp** (`sudo ufw allow 80/tcp`), then `sudo certbot --nginx -d fxlab.alicepage.com` (the existing certbot account is reused). Leaving it open also lets the other sites' certificates renew — several of them (`margin.ecn.llc`, `post.ecn.llc`) are due within ~5 weeks and use the same method.
-2. **DNS-01** validation instead (needs API access to the `alicepage.com` DNS zone).
+```bash
+sudo ufw allow 80/tcp        # HTTP-01 validation and the http->https redirect need port 80
+sudo certbot --nginx -d fxlab.alicepage.com --redirect
+```
 
-Until then the site answers on nginx port 80 but is unreachable from the internet; verify on the server with
-`curl -H 'Host: fxlab.alicepage.com' http://127.0.0.1/health`.
+- certbot rewrote **only** `/etc/nginx/sites-available/fxlab.alicepage.com.conf` (adds the 443 block, cert paths and the
+  redirect). `deploy/nginx-fxlab.conf` in this repo is the *pre-TLS template*; the server's copy is the certbot-managed one.
+- Renewal is automatic (`certbot.timer`). `sudo certbot renew --dry-run` succeeds for every certificate on the box.
+- Opening port 80 is also what lets the *other* sites' certificates renew (they use the same HTTP-01 method).
+- If the firewall is ever locked down again, renewals — for all sites — will start failing ~30 days before expiry.
+
+Set the repo variable `PUBLIC_URL=https://fxlab.alicepage.com` so the deploy workflow also checks the site from the outside.
 
 ## Rollback
 
@@ -123,6 +129,7 @@ Until then the site answers on nginx port 80 but is unreachable from the interne
 
 ## What has and hasn't been exercised
 
-Run for real on the server: the bootstrap, a release deploy, both services with the API key, the nginx site (before/after
-comparison of every other site: identical), WebSocket through nginx. The **GitHub Actions workflows themselves have not run yet**
+Run for real on the server: the bootstrap, release deploys, re-activation (rollback) and an automatic rollback of a deliberately
+broken release, both services with the API key, the nginx site and TLS (before/after comparison of every other site: identical),
+`wss://` through nginx, and an order placed through the public URL. The **GitHub Actions workflows themselves have not run yet**
 (secrets aren't configured), so the first tag push is their real test — do it with a mentor watching.
