@@ -94,5 +94,6 @@ fxlab consolidates two earlier prototypes:
 
 ## Known limitations
 
-USD pairs only (no crosses); weekends-only value-date calendar; no real authentication (one shared
-API key); prices are a random walk; one process, so no horizontal scaling; the event bus is in-memory.
+USD pairs only (no crosses); weekends-only value-date calendar; no login (the admin controls are open and only the
+ack callback uses a shared secret); prices are a random walk; one process, so no horizontal scaling; the event bus is
+in-memory.

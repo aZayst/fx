@@ -77,5 +77,5 @@ Things to try (dashboard at `/`, API docs at `/docs`):
 ## Scope and limits
 
 A teaching sandbox: simulated prices, fake counterparties, no real money, minimal auth
-(a shared API key on admin endpoints). Deliberately out of scope: order books/matching,
+(the admin/scenario controls are open; only the ack callback uses a shared secret). Deliberately out of scope: order books/matching,
 margin, perps, real FIX sessions, crosses, holiday calendars — several are curriculum stretch goals.

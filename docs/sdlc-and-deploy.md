@@ -100,7 +100,7 @@ sudo nginx -t && sudo systemctl reload nginx                   # if -t fails: re
 # 5. HTTPS: open 80/tcp, then certbot --nginx — see "HTTPS (done)" below
 ```
 
-The admin panel needs the API key: `sudo grep '^API_KEY=' /opt/fxlab/.env` (paste it in the dashboard's *API key* box).
+The dashboard needs no key: the Admin panel (counterparty modes, demo actions) is open by design — it only touches fake data. The only secret is `API_KEY` in `/opt/fxlab/.env`, which the counterparty service sends with each ack so the public internet cannot forge acks; nobody types it.
 
 ### HTTPS (done)
 
@@ -130,6 +130,6 @@ Set the repo variable `PUBLIC_URL=https://fxlab.alicepage.com` so the deploy wor
 ## What has and hasn't been exercised
 
 Run for real on the server: the bootstrap, release deploys, re-activation (rollback) and an automatic rollback of a deliberately
-broken release, both services with the API key, the nginx site and TLS (before/after comparison of every other site: identical),
+broken release, both services with the ack secret, the nginx site and TLS (before/after comparison of every other site: identical),
 `wss://` through nginx, and an order placed through the public URL. The **GitHub Actions workflows themselves have not run yet**
 (secrets aren't configured), so the first tag push is their real test — do it with a mentor watching.

@@ -63,7 +63,7 @@ SELECT id, severity, rule, message, created_at FROM alerts WHERE status = 'OPEN'
 
 ### 1. A counterparty is silent (unacked trades)
 *Symptom:* dashboard cells stay `SENT`; `UNACKED_TOO_LONG` alerts after 30 s; `fxlab_confirmations_total` stops growing for one counterparty.
-1. `curl -s http://127.0.0.1:8101/agencies` — is that counterparty in mode `SILENT`? (Admin panel, or `PUT /api/admin/counterparties/{code}/mode` with the API key.)
+1. `curl -s http://127.0.0.1:8101/agencies` — is that counterparty in mode `SILENT`? (Fix it in the dashboard's Admin panel, or `PUT /api/admin/counterparties/{code}/mode`.)
 2. Is the service up? `systemctl status fxlab-counterparty`; `sudo systemctl restart fxlab-counterparty`.
 3. Fix, then **resend**: dashboard ↻ or `POST /api/posttrade/resend {"trade_id": N}` (only un-acked counterparties are re-sent).
 4. Confirm the break cleared: `GET /api/monitoring/reconciliation?breaks_only=true` is empty.
@@ -72,7 +72,7 @@ SELECT id, severity, rule, message, created_at FROM alerts WHERE status = 'OPEN'
 *Symptom:* `REJECTED` cell, `CONFIRMATION_REJECTED` alert with the reason. Read the reason (hover the tag or the alert), fix the cause (here: mode `REJECT`), resend.
 
 ### 3. Acks arrive but nothing updates
-`journalctl -u fxlab-counterparty | grep 'could not deliver ack'` — usually a wrong `GATEWAY_ACK_URL`, or an `API_KEY` mismatch (the ack endpoint answers 401). Both services read the same `/opt/fxlab/.env`.
+`journalctl -u fxlab-counterparty | grep 'could not deliver ack'` — usually a wrong `GATEWAY_ACK_URL`, or an `API_KEY` mismatch (the ack endpoint answers 401). `API_KEY` is the internal secret counterparties send with acks; both services read it from the same `/opt/fxlab/.env`. Nobody types it in the browser.
 
 ### 4. Database is down
 *Symptom:* `/ready` returns 503, orders fail. `systemctl status postgresql@16-main`; `journalctl -u postgresql@16-main`.

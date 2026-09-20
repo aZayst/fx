@@ -92,7 +92,7 @@ a full disk, a slow ack. Each ends with a short incident note (timeline, cause, 
 ## ★ Stretch goals
 - **Real FIX:** replace the JSON messages with FIX 4.4 `35=AE`/`35=AR` using QuickFIX or `simplefix`; keep the `CounterpartyClient` interface.
 - **Migrations:** introduce Alembic; replace `create_all`.
-- **Auth:** per-user login and roles (trader vs. ops vs. admin) instead of one shared key.
+- **Auth:** per-user login and roles (trader vs. ops vs. admin); today the admin panel is open and only the ack callback has a shared secret.
 - **Markouts:** compute post-trade price drift at +1/+5/+30 s from stored quotes — where do the quotes need to be persisted?
 - **Perps / margin:** the earlier `perps-margin-poc` accounting (funding, margin, liquidation) as an add-on module.
 - **Observability:** run Prometheus + Grafana in compose against `/metrics`; add an ack-latency panel and an unacked-count alert.

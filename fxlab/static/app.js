@@ -6,12 +6,9 @@ const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const num = (v, dp = 2) => Number(v).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const tag = (s) => `<span class="tag ${esc(s)}">${esc(s)}</span>`;
-const apiKey = () => $("#api-key").value.trim();
 
-async function api(path, { method = "GET", body, admin = false } = {}) {
-  const headers = { "Content-Type": "application/json" };
-  if (admin && apiKey()) headers["X-API-Key"] = apiKey();
-  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail ?? res.statusText));
   return data;
@@ -126,28 +123,26 @@ $("#alerts").addEventListener("click", async (e) => {
 async function refreshModes() {
   const box = $("#cp-modes");
   try {
-    const modes = await api("/api/admin/counterparties", { admin: true });
+    const modes = await api("/api/admin/counterparties");
     box.innerHTML = Object.entries(modes).map(([cp, mode]) =>
       `<div class="cp"><span>${esc(cp)}</span>${["ACK", "REJECT", "SILENT"].map((m) => `<button class="ghost ${m === mode ? "cur" : ""}" data-cp="${esc(cp)}" data-mode="${m}">${m}</button>`).join("")}</div>`).join("");
   } catch (err) { box.innerHTML = `<p class="msg err">${esc(err.message)}</p>`; }
 }
 $("#cp-modes").addEventListener("click", async (e) => {
   const { cp, mode } = e.target.dataset; if (!mode) return;
-  try { await api(`/api/admin/counterparties/${cp}/mode`, { method: "PUT", body: { mode }, admin: true }); } catch (err) { say($("#admin-msg"), err.message, true); }
+  try { await api(`/api/admin/counterparties/${cp}/mode`, { method: "PUT", body: { mode } }); } catch (err) { say($("#admin-msg"), err.message, true); }
   refreshModes();
 });
 const actions = {
-  inject: () => api("/api/admin/trades/inject", { method: "POST", admin: true, body: { account_id: "FUND-1", symbol: "EUR/USD", side: "BUY", quantity: "1000000", price: "1.1200" } }),
-  bump: async () => { const q = await api("/api/quotes/EUR/USD"); return api("/api/admin/prices/EUR/USD", { method: "POST", admin: true, body: { mid: String(Number(q.mid) + 0.002) } }); },
-  sweep: () => api("/api/admin/sweep", { method: "POST", admin: true }),
-  settle: () => api(`/api/admin/settle?as_of=${new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10)}`, { method: "POST", admin: true }),
+  inject: () => api("/api/admin/trades/inject", { method: "POST", body: { account_id: "FUND-1", symbol: "EUR/USD", side: "BUY", quantity: "1000000", price: "1.1200" } }),
+  bump: async () => { const q = await api("/api/quotes/EUR/USD"); return api("/api/admin/prices/EUR/USD", { method: "POST", body: { mid: String(Number(q.mid) + 0.002) } }); },
+  sweep: () => api("/api/admin/sweep", { method: "POST" }),
+  settle: () => api(`/api/admin/settle?as_of=${new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10)}`, { method: "POST" }),
 };
 document.querySelector("[data-act]").parentElement.addEventListener("click", async (e) => {
   const act = e.target.dataset.act; if (!act) return;
   try { say($("#admin-msg"), JSON.stringify(await actions[act]())); } catch (err) { say($("#admin-msg"), err.message, true); }
 });
-$("#api-key").value = localStorage.getItem("fxlab-api-key") || "";
-$("#api-key").addEventListener("change", () => { localStorage.setItem("fxlab-api-key", apiKey()); refreshModes(); });
 
 // ---------------------------------------------------------------- websocket
 const refreshOrdersD = debounced(refreshOrders), refreshTradesD = debounced(refreshTrades),

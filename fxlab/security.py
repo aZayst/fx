@@ -1,4 +1,4 @@
-"""API-key guard for admin endpoints and the ack callback."""
+"""Shared-secret guard for the counterparty -> gateway ack callback (the only guarded route)."""
 
 from __future__ import annotations
 

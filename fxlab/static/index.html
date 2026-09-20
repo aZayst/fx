@@ -24,7 +24,7 @@
         <label>Account <select name="account_id"></select></label>
         <label>Pair <select name="symbol"></select></label>
         <label>Side <select name="side"><option>BUY</option><option>SELL</option></select></label>
-        <label>Quantity <input name="quantity" type="number" value="1000000" min="1" step="1000"></label>
+        <label>Quantity <input name="quantity" type="number" value="1000000" min="1" step="any"></label>
         <label>Type <select name="order_type"><option>MARKET</option><option>LIMIT</option></select></label>
         <label>Limit price <input name="limit_price" type="number" step="any" disabled></label>
         <button type="submit">Send order</button>
@@ -64,7 +64,6 @@
 
     <section class="card wide">
       <h2>Admin <small>scenario controls</small></h2>
-      <label class="inline">API key <input id="api-key" type="password" placeholder="only if the server sets API_KEY"></label>
       <div class="row">
         <div>
           <h3>Counterparty behaviour</h3>

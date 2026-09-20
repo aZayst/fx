@@ -158,17 +158,24 @@ def test_system_endpoints(client: TestClient) -> None:
     assert client.get("/").status_code == 200
 
 
-def test_api_key_protects_admin_and_ack_callback(fake_client: FakeClient) -> None:
+def test_api_key_protects_only_the_ack_callback(fake_client: FakeClient) -> None:
+    """The secret exists so nobody can forge acks; the dashboard/admin controls need no key."""
     secured = Settings(database_url="sqlite://", background_tasks=False, api_key="s3cret")
     with TestClient(create_app(secured, fake_client, PriceFeed(seed=1))) as c:
         ack = {"report_id": "x", "status": "ACCEPTED"}
         assert c.post("/api/posttrade/acks", json=ack).status_code == 401
-        assert c.get("/api/admin/counterparties").status_code == 401
-        good = {"X-API-Key": "s3cret"}
-        assert c.post("/api/posttrade/acks", json=ack, headers=good).status_code == 200
-        assert c.get("/api/admin/counterparties", headers=good).status_code == 200
-        assert c.get("/api/trades").status_code == 200  # reads stay open
-        assert c.get("/api/admin/counterparties", headers={"X-API-Key": "bad"}).status_code == 401
+        assert (
+            c.post("/api/posttrade/acks", json=ack, headers={"X-API-Key": "bad"}).status_code == 401
+        )
+        assert (
+            c.post("/api/posttrade/acks", json=ack, headers={"X-API-Key": "s3cret"}).status_code
+            == 200
+        )
+        # everything a person uses in the browser works without any key
+        assert c.get("/api/admin/counterparties").status_code == 200
+        mode = c.put("/api/admin/counterparties/CCP_ALPHA/mode", json={"mode": "REJECT"})
+        assert mode.status_code == 200
+        assert c.post("/api/admin/sweep").status_code == 200
 
 
 def test_websocket_streams_snapshot_then_live_events(client: TestClient) -> None:

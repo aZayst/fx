@@ -17,7 +17,7 @@ def _env(name: str, default: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     database_url: str = "sqlite:///./fxlab.db"
-    api_key: str = ""  # empty = auth disabled (dev only)
+    api_key: str = ""  # secret the counterparties send with acks; empty = not checked (local dev)
 
     # Post-trade wiring
     counterparty_url: str = "http://localhost:8001"

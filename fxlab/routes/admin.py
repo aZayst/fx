@@ -1,4 +1,4 @@
-"""Scenario controls for demos and exercises. Protected by the API key."""
+"""Scenario controls for demos and exercises (fake data only, so deliberately no auth)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,8 @@ from ..context import AppContext, get_ctx
 from ..posttrade import dispatch_trade
 from ..pricing import UnknownInstrument
 from ..schemas import ManualTradeIn, QuoteOut, SetMidIn, SetModeIn
-from ..security import require_api_key
 
-router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.get("/counterparties")
