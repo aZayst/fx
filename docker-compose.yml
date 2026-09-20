@@ -1,0 +1,42 @@
+# LOCAL full stack:  docker compose up --build
+#   app          http://localhost:8000   (dashboard + API + WebSocket)
+#   counterparty internal only           (fake clearing houses)
+#   db           internal only           (Postgres)
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fxlab
+      POSTGRES_PASSWORD: fxlab
+      POSTGRES_DB: fxlab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fxlab -d fxlab"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  counterparty:
+    build: .
+    command: ["uvicorn", "fxlab.counterparty.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      GATEWAY_ACK_URL: http://app:8000/api/posttrade/acks
+      API_KEY: ${API_KEY:-}
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      counterparty:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://fxlab:fxlab@db:5432/fxlab
+      COUNTERPARTY_URL: http://counterparty:8000
+      API_KEY: ${API_KEY:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  pgdata:

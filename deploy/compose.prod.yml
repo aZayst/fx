@@ -1,0 +1,50 @@
+# PRODUCTION stack on the shared server (fxlab.alicepage.com).
+#
+# The server already runs nginx for other sites. This stack is built so it cannot
+# interfere with it:
+#   * it publishes ONE port, bound to 127.0.0.1 only (nginx proxies to it);
+#   * it never binds 80/443, and nothing here touches nginx;
+#   * the database and counterparties live on a private compose network;
+#   * `name: fxlab` namespaces containers, network and volume (fxlab-app-1, fxlab_pgdata).
+name: fxlab
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fxlab
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: fxlab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fxlab -d fxlab"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  counterparty:
+    image: ${IMAGE:?set IMAGE}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    command: ["uvicorn", "fxlab.counterparty.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      GATEWAY_ACK_URL: http://app:8000/api/posttrade/acks
+      API_KEY: ${API_KEY:?set API_KEY in .env}
+
+  app:
+    image: ${IMAGE:?set IMAGE}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://fxlab:${DB_PASSWORD}@db:5432/fxlab
+      COUNTERPARTY_URL: http://counterparty:8000
+      API_KEY: ${API_KEY}
+    ports:
+      # loopback only: reachable by nginx on this host, not from the internet
+      - "127.0.0.1:${APP_PORT:-8100}:8000"
+
+volumes:
+  pgdata:

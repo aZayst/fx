@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fxlab</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>fxlab <small>FX trading · booking · post-trade · monitoring</small></h1>
+    <span id="ws-status" class="pill off">connecting…</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Quotes <small>live over WebSocket</small></h2>
+      <table id="quotes"><thead><tr><th>Pair</th><th>Bid</th><th>Ask</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card">
+      <h2>Order ticket</h2>
+      <form id="ticket">
+        <label>Account <select name="account_id"></select></label>
+        <label>Pair <select name="symbol"></select></label>
+        <label>Side <select name="side"><option>BUY</option><option>SELL</option></select></label>
+        <label>Quantity <input name="quantity" type="number" value="1000000" min="1" step="1000"></label>
+        <label>Type <select name="order_type"><option>MARKET</option><option>LIMIT</option></select></label>
+        <label>Limit price <input name="limit_price" type="number" step="any" disabled></label>
+        <button type="submit">Send order</button>
+      </form>
+      <p id="order-msg" class="msg"></p>
+      <h3>Open orders</h3>
+      <table id="open-orders"><tbody></tbody></table>
+    </section>
+
+    <section class="card wide">
+      <h2>Trades <small>booked from fills</small></h2>
+      <table id="trades"><thead><tr>
+        <th>Ref</th><th>Account</th><th>Pair</th><th>Side</th><th class="num">Qty</th>
+        <th class="num">Price</th><th>Value date</th><th>Status</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card wide">
+      <h2>Positions <small>mark-to-market</small></h2>
+      <table id="positions"><thead><tr>
+        <th>Account</th><th>Pair</th><th class="num">Net base</th><th class="num">Net quote</th>
+        <th class="num">Mid</th><th class="num">P&amp;L (USD)</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card wide">
+      <h2>Post-trade monitor <small>each trade × each counterparty</small></h2>
+      <div id="summary" class="summary"></div>
+      <label class="inline"><input type="checkbox" id="breaks-only"> breaks only</label>
+      <table id="recon"><thead></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card wide">
+      <h2>Alerts</h2>
+      <table id="alerts"><tbody></tbody></table>
+    </section>
+
+    <section class="card wide">
+      <h2>Admin <small>scenario controls</small></h2>
+      <label class="inline">API key <input id="api-key" type="password" placeholder="only if the server sets API_KEY"></label>
+      <div class="row">
+        <div>
+          <h3>Counterparty behaviour</h3>
+          <div id="cp-modes"></div>
+          <p class="hint">ACK accepts · REJECT rejects · SILENT never answers (creates unacked breaks).</p>
+        </div>
+        <div>
+          <h3>Demo actions</h3>
+          <button data-act="inject">Book off-market EUR/USD trade</button>
+          <button data-act="bump">Move EUR/USD mid +20 pips</button>
+          <button data-act="sweep">Run SLA sweep now</button>
+          <button data-act="settle">Settle due trades (as of +3 days)</button>
+          <p id="admin-msg" class="msg"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
